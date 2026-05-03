@@ -28,7 +28,7 @@ from config import (
 
 def load_raw(path: str) -> pd.DataFrame:
     """Load train.json and return as DataFrame."""
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     df = pd.DataFrame(data)
     print(f"[dataset] Loaded {len(df)} recipes across {df['cuisine'].nunique()} cuisines.")
