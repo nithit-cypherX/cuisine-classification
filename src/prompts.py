@@ -3,54 +3,75 @@ prompts.py
 ----------
 Defines all LLM prompt templates used in the experiment.
 
-Each function takes recipe text (and optionally retrieved examples)
-and returns a fully formatted prompt string ready to send to the API.
-
-Strategies:
-  1. zero_shot        — No examples, label list only
-  2. dynamic_few_shot — k retrieved examples from ChromaDB as context
+build_prompt() is the single entry point used by inference.py.
+It automatically produces:
+  - Zero-shot prompt  when retrieved_examples is empty (k=0)
+  - Dynamic few-shot  when retrieved_examples has content (k>0)
 
 DO NOT modify prompts mid-experiment.
-If you want to test a new prompt, add a new function — never overwrite existing ones.
+If testing a new prompt style, add a new function — never overwrite.
 """
 
 from config import TARGET_CUISINES
 
-# Human-readable label for display
-CUISINE_LABELS = ", ".join([c.replace("_", " ").title() for c in TARGET_CUISINES])
-# → Italian, Mexican, Indian, Thai, Japanese, Southern Us
-
-# Normalised label list used for parsing outputs
+# Label list for parsing outputs — must match exactly what is stored in the dataset
 LABEL_LIST = TARGET_CUISINES
 
+# Human-readable label string shown inside the prompt
+CUISINE_OPTIONS = ", ".join([c.replace("_", " ").title() for c in TARGET_CUISINES])
+# → Italian, Mexican, Indian, Thai, Japanese, Southern Us
 
-def zero_shot(text: str) -> str:
+
+def build_prompt(text: str, retrieved_examples: list[dict]) -> str:
     """
-    Zero-shot prompt: no examples, just the label list and the recipe.
+    Build the LLM prompt for a single test recipe.
+
+    Automatically switches between zero-shot and dynamic few-shot
+    based on whether retrieved_examples is empty or not.
 
     Args:
-        text : Ingredient string (e.g. "garlic, tomato, basil, olive oil")
+        text               : Test recipe ingredient string
+        retrieved_examples : List of dicts with keys 'text' and 'cuisine'
+                             Empty list → zero-shot
+                             Non-empty  → dynamic few-shot
+
+    Returns:
+        Fully formatted prompt string ready to send to the OpenAI API
+    """
+    if not retrieved_examples:
+        return _zero_shot_prompt(text)
+    else:
+        return _dynamic_few_shot_prompt(text, retrieved_examples)
+
+
+def _zero_shot_prompt(text: str) -> str:
+    """
+    Zero-shot prompt: no examples, just the ingredient list and label options.
+    Used when k=0.
+
+    Args:
+        text : Ingredient string
 
     Returns:
         Formatted prompt string
     """
     return f"""Classify the following recipe into exactly one cuisine category.
-Choose only from: {CUISINE_LABELS}.
-Reply with the cuisine name only — no explanation.
+Choose only from: {CUISINE_OPTIONS}.
+Reply with the cuisine name only — no explanation, no extra text.
 
 Recipe ingredients: {text}
 Cuisine:"""
 
 
-def dynamic_few_shot(text: str, retrieved_examples: list[dict]) -> str:
+def _dynamic_few_shot_prompt(text: str, retrieved_examples: list[dict]) -> str:
     """
-    Dynamic few-shot prompt: uses k examples retrieved from ChromaDB.
-    Examples are different for every test query.
+    Dynamic few-shot prompt: uses examples retrieved from ChromaDB as context.
+    The examples are different for every test query — hence "dynamic".
+    Used when k > 0.
 
     Args:
         text               : Test recipe ingredient string
-        retrieved_examples : List of dicts with keys 'text' and 'cuisine'
-                             (returned by vectorstore.retrieve_similar)
+        retrieved_examples : List of dicts {'text': ..., 'cuisine': ...}
 
     Returns:
         Formatted prompt string
@@ -58,13 +79,13 @@ def dynamic_few_shot(text: str, retrieved_examples: list[dict]) -> str:
     examples_block = ""
     for ex in retrieved_examples:
         label = ex["cuisine"].replace("_", " ").title()
-        examples_block += f'Ingredients: {ex["text"]}\nCuisine: {label}\n\n'
+        examples_block += f"Ingredients: {ex['text']}\nCuisine: {label}\n\n"
 
     return f"""Classify the following recipe into exactly one cuisine category.
-Choose only from: {CUISINE_LABELS}.
-Reply with the cuisine name only — no explanation.
+Choose only from: {CUISINE_OPTIONS}.
+Reply with the cuisine name only — no explanation, no extra text.
 
-Here are some examples:
+Here are some reference examples:
 
 {examples_block.strip()}
 
