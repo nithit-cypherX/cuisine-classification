@@ -1,54 +1,54 @@
 """
 inference.py
 ------------
-Runs the full experiment: applies both prompt strategies to the test set
-and saves all predictions to a CSV.
+Runs the full experiment across all embedding types and k values.
 
-Pipeline per test recipe:
-  Zero-shot        → format prompt → call OpenAI API → parse output
-  Dynamic few-shot → embed recipe → query ChromaDB → format prompt
-                   → call OpenAI API → parse output
+Experiment matrix:
+  Embedding types : bow, sparse, dense         (3 types)
+  k values        : 0, 4, 8, 16               (4 values)
+  Total conditions: 3 × 4 = 12 conditions
 
-Run after dataset.py and vectorstore.py have been completed:
+For each condition:
+  k=0  → Zero-shot: test recipe + no examples → OpenAI API
+  k>0  → Dynamic few-shot:
+          embed test recipe → query ChromaDB (k examples) → OpenAI API
+
+All 12 conditions are run on the SAME 90 test recipes.
+Results are saved as one CSV with one column per condition.
+
+Run after dataset.py and vectorstore.py:
   python src/inference.py
 
 Output: results/predictions/predictions.csv
-  Columns: id, true_label, zero_shot_pred, dynamic_few_shot_pred,
-           zero_shot_raw, dynamic_few_shot_raw
 """
 
 import os
 import time
 import pandas as pd
 from openai import OpenAI
-from embeddings import load_model, encode_single
-from vectorstore import load_vectorstore, retrieve_similar
-from prompts import zero_shot, dynamic_few_shot, LABEL_LIST
+
+from embeddings import (
+    load_bow, load_sparse, load_dense_model,
+    encode_single
+)
+from vectorstore import load_collection, retrieve_similar
+from prompts import build_prompt, LABEL_LIST
 from config import (
     OPENAI_API_KEY, OPENAI_MODEL,
     LLM_TEMPERATURE, LLM_MAX_TOKENS,
     TEST_SET_CSV, PREDICTIONS_CSV,
-    RESULTS_PRED_DIR, FEW_SHOT_K
+    RESULTS_PRED_DIR,
+    EMBEDDING_TYPES, K_VALUES
 )
 
 
-# ── Initialise clients ────────────────────────────────────────────────────────
-client     = OpenAI(api_key=OPENAI_API_KEY)
-embed_model = load_model()
-collection  = load_vectorstore()
+# ── Initialise OpenAI client ──────────────────────────────────────────────────
+llm_client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def call_llm(prompt: str) -> str:
-    """
-    Send a prompt to the OpenAI API and return the raw text response.
-
-    Args:
-        prompt : Fully formatted prompt string
-
-    Returns:
-        Raw string response from the LLM
-    """
-    response = client.chat.completions.create(
+    """Send a prompt to OpenAI and return the raw text response."""
+    response = llm_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=LLM_TEMPERATURE,
@@ -60,7 +60,7 @@ def call_llm(prompt: str) -> str:
 def parse_label(raw_output: str) -> str:
     """
     Extract a clean cuisine label from the LLM's raw output.
-    Returns 'invalid' if no known cuisine name is found.
+    Returns 'invalid' if no known label is found.
 
     Args:
         raw_output : Raw string returned by the LLM
@@ -68,74 +68,131 @@ def parse_label(raw_output: str) -> str:
     Returns:
         Matched cuisine label (e.g. 'italian') or 'invalid'
     """
-    normalised = raw_output.lower().replace(" ", "_")
+    text = raw_output.lower()
     for label in LABEL_LIST:
-        if label in normalised or label.replace("_", " ") in raw_output.lower():
+        if label in text or label.replace("_", " ") in text:
             return label
     return "invalid"
 
 
+def load_all_models() -> dict:
+    """
+    Load all vectorizers and models needed for inference.
+    Loads once at startup — not repeatedly per recipe.
+
+    Returns:
+        Dict keyed by embedding type: {'bow': ..., 'sparse': ..., 'dense': ...}
+    """
+    print("[inference] Loading all embedding models and vectorizers...")
+    return {
+        "bow":    load_bow(),
+        "sparse": load_sparse(),
+        "dense":  load_dense_model()
+    }
+
+
+def load_all_collections() -> dict:
+    """
+    Load all ChromaDB collections needed for inference.
+
+    Returns:
+        Dict keyed by embedding type: {'bow': collection, ...}
+    """
+    print("[inference] Loading all ChromaDB collections...")
+    return {
+        emb_type: load_collection(emb_type)
+        for emb_type in EMBEDDING_TYPES
+    }
+
+
 def run_experiment(test_set: pd.DataFrame) -> pd.DataFrame:
     """
-    Run both prompt strategies on the entire test set.
+    Run all 12 conditions (3 embedding types × 4 k values) on the test set.
+
+    For each test recipe and each condition:
+      1. Embed the test recipe using the current embedding type
+      2. If k > 0: query ChromaDB to retrieve k similar training recipes
+      3. Build the prompt (zero-shot or dynamic few-shot)
+      4. Call the OpenAI API
+      5. Parse the output label
 
     Args:
         test_set : DataFrame with columns [id, cuisine, text]
 
     Returns:
-        DataFrame with prediction columns added
+        DataFrame with original columns + one column per condition
     """
-    zero_shot_raws    = []
-    zero_shot_preds   = []
-    few_shot_raws     = []
-    few_shot_preds    = []
+    models      = load_all_models()
+    collections = load_all_collections()
 
-    total = len(test_set)
-    for i, row in test_set.iterrows():
-        print(f"[inference] Processing {i+1}/{total} — {row['cuisine']}")
+    results_df = test_set.copy()
+    total      = len(test_set)
 
-        # ── Strategy 1: Zero-shot ─────────────────────────────────────────
-        zs_prompt = zero_shot(row["text"])
-        zs_raw    = call_llm(zs_prompt)
-        zs_pred   = parse_label(zs_raw)
-        zero_shot_raws.append(zs_raw)
-        zero_shot_preds.append(zs_pred)
+    for emb_type in EMBEDDING_TYPES:
+        for k in K_VALUES:
+            condition = f"{emb_type}_k{k}"
+            raw_col   = f"{condition}_raw"
+            pred_col  = f"{condition}_pred"
 
-        # ── Strategy 2: Dynamic few-shot ──────────────────────────────────
-        query_embedding = encode_single(embed_model, row["text"])
-        retrieved       = retrieve_similar(collection, query_embedding, k=FEW_SHOT_K)
-        fs_prompt       = dynamic_few_shot(row["text"], retrieved)
-        fs_raw          = call_llm(fs_prompt)
-        fs_pred         = parse_label(fs_raw)
-        few_shot_raws.append(fs_raw)
-        few_shot_preds.append(fs_pred)
+            print(f"\n{'='*55}")
+            print(f"Condition: embedding={emb_type.upper()}, k={k}")
+            print(f"{'='*55}")
 
-        # Small delay to avoid rate limiting
-        time.sleep(0.3)
+            raw_outputs = []
+            predictions = []
 
-    test_set = test_set.copy()
-    test_set["zero_shot_raw"]            = zero_shot_raws
-    test_set["zero_shot_pred"]           = zero_shot_preds
-    test_set["dynamic_few_shot_raw"]     = few_shot_raws
-    test_set["dynamic_few_shot_pred"]    = few_shot_preds
+            for idx, row in test_set.iterrows():
+                print(f"  [{idx+1}/{total}] {row['cuisine']} | {emb_type} | k={k}")
 
-    return test_set
+                # Step 1: Embed the test recipe
+                query_embedding = encode_single(emb_type, row["text"], models[emb_type])
+
+                # Step 2: Retrieve k examples from ChromaDB (empty list if k=0)
+                retrieved = retrieve_similar(collections[emb_type], query_embedding, k=k)
+
+                # Step 3: Build prompt
+                prompt = build_prompt(row["text"], retrieved)
+
+                # Step 4: Call LLM
+                raw = call_llm(prompt)
+                raw_outputs.append(raw)
+
+                # Step 5: Parse output
+                pred = parse_label(raw)
+                predictions.append(pred)
+
+                time.sleep(0.3)   # Avoid OpenAI rate limiting
+
+            results_df[raw_col]  = raw_outputs
+            results_df[pred_col] = predictions
+
+            # Per-condition summary
+            invalid_n    = predictions.count("invalid")
+            invalid_rate = invalid_n / total
+            print(f"\n  ✓ Done | Invalid outputs: {invalid_n}/{total} ({invalid_rate:.1%})")
+
+    return results_df
 
 
 def save_predictions(df: pd.DataFrame) -> None:
-    """Save prediction results to CSV."""
+    """Save all prediction results to CSV."""
     os.makedirs(RESULTS_PRED_DIR, exist_ok=True)
     df.to_csv(PREDICTIONS_CSV, index=False)
-    print(f"[inference] Predictions saved → {PREDICTIONS_CSV}")
+    print(f"\n[inference] All predictions saved → {PREDICTIONS_CSV}")
 
 
 if __name__ == "__main__":
     test_set = pd.read_csv(TEST_SET_CSV)
-    print(f"[inference] Running experiment on {len(test_set)} test recipes...")
+    print(f"[inference] Test set: {len(test_set)} recipes")
+    print(f"[inference] Conditions: {len(EMBEDDING_TYPES)} embedding types × {len(K_VALUES)} k values = {len(EMBEDDING_TYPES)*len(K_VALUES)} total\n")
+
     results = run_experiment(test_set)
     save_predictions(results)
 
-    # Quick summary
-    for col in ["zero_shot_pred", "dynamic_few_shot_pred"]:
-        invalid_rate = (results[col] == "invalid").mean()
-        print(f"[inference] {col} invalid rate: {invalid_rate:.1%}")
+    # Final summary table
+    print("\n── Final Summary ────────────────────────────────────────")
+    for emb_type in EMBEDDING_TYPES:
+        for k in K_VALUES:
+            col          = f"{emb_type}_k{k}_pred"
+            invalid_rate = (results[col] == "invalid").mean()
+            print(f"  {emb_type:8s} k={k:2d} | invalid rate: {invalid_rate:.1%}")
