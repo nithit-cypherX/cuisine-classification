@@ -108,8 +108,7 @@ Run each step **in order**. Each script must complete successfully before runnin
 ### Step 1 — Prepare the dataset
 
 ```bash
-cd src
-python dataset.py
+python src/dataset.py
 ```
 
 **What it does:**
@@ -134,7 +133,7 @@ python dataset.py
 ### Step 2 — Build the ChromaDB vector store
 
 ```bash
-python vectorstore.py
+python src/vectorstore.py
 ```
 
 **What it does:**
@@ -158,7 +157,7 @@ This step takes ~2–5 minutes on CPU. Run it only once — ChromaDB persists to
 ### Step 3 — Run the experiment
 
 ```bash
-python inference.py
+python src/inference.py
 ```
 
 **What it does:**
@@ -187,7 +186,7 @@ python inference.py
 ### Step 4 — Evaluate and visualise results
 
 ```bash
-python evaluate.py
+python src/evaluate.py
 ```
 
 **What it does:**
