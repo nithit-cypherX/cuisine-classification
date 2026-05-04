@@ -21,15 +21,6 @@ envs/
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# Data — raw and processed data should not be committed
-data/raw/
-data/processed/
-data/results/
-
-# Results — large output files
-results/predictions/*.csv
-results/figures/*.png
-
 # ChromaDB local storage
 chroma_db/
 *.sqlite3
