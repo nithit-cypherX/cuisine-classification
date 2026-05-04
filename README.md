@@ -97,7 +97,7 @@ OPENAI_API_KEY=your_actual_key_here
 2. Download `train.json`
 3. Place it at: `data/raw/train.json`
 
-⚠️ **Do not commit the dataset.** The `data/raw/` folder is in `.gitignore`.
+⚠️ We already provided.
 
 ---
 
@@ -229,28 +229,6 @@ All settings are controlled via `.env`. Defaults:
 | `RANDOM_SEED` | 42 | For reproducibility |
 | `LLM_TEMPERATURE` | 0 | Deterministic outputs |
 
----
-
-## ⚠️ Important Rules for the Team
-
-1. **Never commit `.env`** — your API key must stay private
-2. **Never commit `data/raw/` or `data/processed/`** — large files, excluded by `.gitignore`
-3. **Never store test set embeddings in ChromaDB** — test recipes are only embedded at query time
-4. **Do not modify prompt templates mid-experiment** — if testing a new prompt, add a new function in `prompts.py`
-5. **Save predictions.csv before re-running inference** — API calls cost money
-6. **All settings go in `.env`** — never hardcode values in source files
-
----
-
-## 🔬 Analysis Questions (for the report)
-
-After evaluation, answer these questions using your results as evidence:
-
-1. Did dynamic few-shot outperform zero-shot overall? By how much in macro F1?
-2. Which cuisines benefited most from retrieval — and why?
-3. Did dynamic few-shot ever hurt performance on any class? Examine the confusion matrix.
-4. Print 3–5 retrieved ChromaDB examples for interesting test cases. Were the retrievals actually relevant?
-5. Was the invalid output rate different between strategies? What does that suggest?
 
 ---
 
@@ -272,8 +250,8 @@ See `requirements.txt` for full list. Key packages:
 
 | Role | Name |
 |---|---|
-| Project owner | [Your Name] |
-| Implementation | [Teammate Name] |
+| Project owner | 6688124 Nithit Teeraworawit |
+| Implementation | 6688193 Atichat Kangsamut , 6688124 Nithit Teeraworawit |
 
 ---
 

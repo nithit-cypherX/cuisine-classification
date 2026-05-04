@@ -1,0 +1,13 @@
+Condition,Embedding,k,Accuracy,Macro F1,Invalid rate
+bow_k0,BOW,0,0.9205,0.9183,2.2%
+bow_k4,BOW,4,0.9326,0.9302,1.1%
+bow_k8,BOW,8,0.9326,0.9303,1.1%
+bow_k16,BOW,16,0.9213,0.9192,1.1%
+sparse_k0,SPARSE,0,0.9213,0.9192,1.1%
+sparse_k4,SPARSE,4,0.9222,0.9199,0.0%
+sparse_k8,SPARSE,8,0.9222,0.9199,0.0%
+sparse_k16,SPARSE,16,0.9333,0.9313,0.0%
+dense_k0,DENSE,0,0.9213,0.9192,1.1%
+dense_k4,DENSE,4,0.9326,0.9319,1.1%
+dense_k8,DENSE,8,0.9333,0.9314,0.0%
+dense_k16,DENSE,16,0.9213,0.9195,1.1%
